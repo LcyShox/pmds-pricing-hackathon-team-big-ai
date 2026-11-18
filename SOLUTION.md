@@ -49,9 +49,12 @@ agent finishes near 11520.
 | 37 teams, 24 aggressive bidders | 42 | 13747 | 11522 |
 | 37 teams, 24 aggressive bidders | 7 | 17042 | 11521 |
 | 37 teams, 24 aggressive bidders | 99 | 12670 | 11528 |
-| 25 teams, mostly patients and moderate bidders | 42 | 14401 | 28807 |
-| 25 teams, mostly patients and moderate bidders | 7 | 14515 | 31771 |
-| 28 teams, moderate plus dumpers | 42 | 15218 | 17658 |
+| 25 teams, mostly patients and moderate bidders | 42 | 17954 | 31686 |
+| 25 teams, mostly patients and moderate bidders | 7 | 16432 | 27371 |
+| 25 teams, mostly patients and moderate bidders | 99 | 17123 | 32060 |
+
+Same 37-team field, 240 turns, start 40000, seed 42: ClearingAgent 125137,
+previous agent 39520, PatientAgent 40000, DummyAgent 46227.
 
 On the softer fields the previous agent still makes more, because it holds a
 large book. ClearingAgent's edge is finishing above Patient on the harsh field

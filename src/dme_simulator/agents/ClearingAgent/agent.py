@@ -220,7 +220,7 @@ class ClearingAgent(BaseAgent):
         elif self._mode == "thin":
             base_target = 1
         elif self._mode == "scale":
-            base_target = max(2, min(6, round(market_scale / 2.5)))
+            base_target = max(3, min(10, round(market_scale / 1.8)))
         else:
             base_target = max(3, min(12, round(market_scale / 1.55)))
 
@@ -233,7 +233,10 @@ class ClearingAgent(BaseAgent):
             if self._mode == "liquidate":
                 desired_stock = 0
             elif self._mode == "thin":
-                desired_stock = 1
+                if self._sell_through.get(good, 0.0) >= 0.70:
+                    desired_stock = max(2, min(8, sales_target))
+                else:
+                    desired_stock = 1
             else:
                 desired_stock = max(2, min(base_target + 3, sales_target))
             production_target[name] = max(0, desired_stock - state.inventory.get(good, 0))
@@ -255,10 +258,10 @@ class ClearingAgent(BaseAgent):
                 if name not in allowed or recipe_score((name, _recipe)) <= 0:
                     production_target[name] = 0
                 elif self._mode == "thin":
-                    sold_well = self._sell_through.get(_recipe.output_good, 0.0) >= 0.55
+                    sold_well = self._sell_through.get(_recipe.output_good, 0.0) >= 0.70
                     production_target[name] = min(
                         production_target[name],
-                        4 if sold_well and state.capital >= (self._start or state.capital) else 2,
+                        8 if sold_well and state.capital >= (self._start or state.capital) else 2,
                     )
 
         wanted = {material: 0 for material in goods_config.raw_materials}
