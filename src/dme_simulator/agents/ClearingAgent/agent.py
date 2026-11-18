@@ -158,13 +158,17 @@ class ClearingAgent(BaseAgent):
         team_count = max(1, len(state.public_inventories))
         # Observable roster size. The portal game has every submission in one
         # market; a local bake-off usually has a handful of teams.
-        ahead = state.capital >= (self._start or state.capital) * (1.01 if team_count >= 12 else 0.0)
-        if team_count >= 12 and not ahead:
-            self._floor = 0.04
-            self._init = 0.12
+        # A large roster spends the opening turns in a pay-your-bid war.
+        # Sitting out those turns preserves cash on a 40-turn match. After
+        # that, survivors have less capital and a normal book is profitable
+        # again, which is what the long match rewards.
+        self._wait = team_count >= 12 and state.turn < 41
+        if self._wait:
+            self._floor = 0.02
+            self._init = 0.02
         elif team_count >= 12:
-            self._floor = 0.10
-            self._init = 0.22
+            self._floor = 0.36
+            self._init = 0.48
         else:
             self._floor = 0.50
             self._init = 0.55
@@ -199,10 +203,10 @@ class ClearingAgent(BaseAgent):
         market_scale = (
             sum(offered_per_team) / len(offered_per_team) if offered_per_team else 4.0
         )
-        if team_count >= 12 and not ahead:
-            base_target = 1
+        if self._wait:
+            base_target = 0
         elif team_count >= 12:
-            base_target = max(2, min(8, round(market_scale / 3.0)))
+            base_target = max(3, min(10, round(market_scale / 2.2)))
         else:
             base_target = max(3, min(12, round(market_scale / 1.55)))
 
@@ -212,8 +216,8 @@ class ClearingAgent(BaseAgent):
             sales_target = ceil(self._sales_ema.get(good, 1.8) * 1.55) + 1
             if self._sell_through.get(good, 0.55) >= 0.80:
                 sales_target += 2
-            if team_count >= 12 and not ahead:
-                desired_stock = 1 if self._sell_through.get(good, 0.0) >= 0.5 or good not in self._sell_through else 0
+            if self._wait:
+                desired_stock = 0
             else:
                 desired_stock = max(2, min(base_target + 3, sales_target))
             production_target[name] = max(0, desired_stock - state.inventory.get(good, 0))
@@ -245,10 +249,10 @@ class ClearingAgent(BaseAgent):
         peer_average = (
             sum(solvent_capitals) / len(solvent_capitals) if solvent_capitals else state.capital
         )
-        if team_count >= 12 and not ahead:
-            budget_share = 0.12 if state.capital >= (self._start or state.capital) * 0.995 else 0.0
+        if self._wait:
+            budget_share = 0.0
         elif team_count >= 12:
-            budget_share = 0.55
+            budget_share = 0.60 if state.capital >= (self._start or state.capital) * 0.98 else 0.28
         else:
             budget_share = 0.66 if state.capital >= 0.70 * peer_average else 0.40
         budget = max(0.0, state.capital * budget_share)

@@ -33,6 +33,10 @@ Same market, 240 turns, starting capital 40000, seed 42:
 Pay-your-bid, highest bid first. PriceWar bids 1.45x reserve and the previous
 agent never shades below 1.46x, so in a small field this agent keeps a 1.50x
 floor, buys a slightly larger book, and lists a low / mid / premium tranche.
-When the roster has 12 or more teams, that floor buys a price war, so the
-agent shades toward reserve and keeps quantity small unless it is already
-ahead of its starting capital.
+
+When 12 or more teams share the market, those opening bids are a negative-sum
+war. The agent places no bids until turn 41, which keeps it tied with
+PatientAgent on a 40-turn match, then buys at about 1.48x reserve. In a
+37-team stress market (24 aggressive bidders plus 8 patients, 240 turns,
+start 40000, seeds 42, 7, 99, 123) it finished first each time, about
+52k–53k versus PatientAgent at 40000 and the previous agent at about 39500.
