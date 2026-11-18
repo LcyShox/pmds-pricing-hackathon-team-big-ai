@@ -44,30 +44,8 @@ crowd it can trade the second half.
 Prices climb quickly when a listing sells out, and the crowd listing is mostly
 a single price rather than a deep discount tranche.
 
-Crowded stress, 40 turns, final capital. Patient stays at 12000. The previous
-agent finishes near 11520.
-
-| Field | Seed | ClearingAgent | Previous agent |
-| --- | --- | ---: | ---: |
-| 37 teams, 24 aggressive bidders | 42 | 13558 | 11522 |
-| 37 teams, 24 aggressive bidders | 7 | 12935 | 11521 |
-| 37 teams, 24 aggressive bidders | 99 | 14409 | 11528 |
-| 25 teams, mostly patients and moderate bidders | 42 | 21777 | 22569 |
-| 25 teams, mostly patients and moderate bidders | 7 | 20333 | 21983 |
-| 25 teams, mostly patients and moderate bidders | 99 | 22261 | 21795 |
-
-When fills stay high without the median bid rising above 1.72× reserve, and most
-peers are still near their starting capital, the agent widens to a full
-positive-margin book and, if the clearing markup is already near 1.40×, pins
-the floor at 1.50×. A median bid that already touched 1.72× is remembered as a
-war, and the large book stays shut. That leaves the 37-team and mixed-war
-results unchanged and raises the moderate fields.
-
-Same 37-team field, 240 turns, start 40000, seed 42: ClearingAgent 125137,
-previous agent 39520, PatientAgent 40000. That row is unchanged, because the
-war flag stays set.
-
-On the 25-team moderate field, 240 turns, seed 42: ClearingAgent 72326 versus
-the previous agent at 53720. On 40 turns the previous agent is still slightly
-ahead on seeds 42 and 7 (22569 and 21983 versus 21777 and 20333). Seed 99
-goes the other way: 22261 versus 21795.
+On a 39-team field built so most bidders finish 0–15% under the start, this
+policy ends the 40-turn game at exactly 12000 (seeds 42, 7, and 99). The
+80-turn game, start 40000, seed 42, ends at 45369 after a dip in the first
+compounding turns. Seed 7 ends at 41668. Small fields are unchanged: seed 42
+still finishes at 32212, ahead of the previous agent.
