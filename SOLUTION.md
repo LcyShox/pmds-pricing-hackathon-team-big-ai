@@ -61,8 +61,10 @@ war, and the large book stays shut. That leaves the 37-team and mixed-war
 results unchanged and raises the moderate fields.
 
 Same 37-team field, 240 turns, start 40000, seed 42: ClearingAgent 125137,
-previous agent 39520, PatientAgent 40000, DummyAgent 46227.
+previous agent 39520, PatientAgent 40000. That row is unchanged, because the
+war flag stays set.
 
-On the softer fields the previous agent still makes more, because it holds a
-large book. ClearingAgent's edge is finishing above Patient on the harsh field
-where that large book loses money.
+On the 25-team moderate field, 240 turns, seed 42: ClearingAgent 72326 versus
+the previous agent at 53720. On 40 turns the previous agent is still slightly
+ahead on seeds 42 and 7 (22569 and 21983 versus 21777 and 20333). Seed 99
+goes the other way: 22261 versus 21795.
