@@ -34,10 +34,13 @@ Pay-your-bid, highest bid first. PriceWar bids 1.45x reserve and the previous
 agent never shades below 1.46x, so in a small field this agent keeps a 1.50x
 floor, buys a slightly larger book, and lists a low / mid / premium tranche.
 
-When 12 or more teams share the market, the agent buys one finished good at a
-time and only while the learned sale price still covers the bid. It keeps
-trading through a mild drawdown (the shape of the teams that beat Patient on
-the 40-turn board) and stops new buys only below 90% of starting capital.
+The observation does not include the match length. Official games are 40 turns
+from 12,000 and 80 turns from 40,000, both seed 42, with every team in one
+market. In that crowd the first 40 turns are a loss-making war, so the agent
+places no bids until turn 41 and holds starting cash. From turn 41 it buys
+again, one unit at a time until a good sells through, then scales that good.
+On a 40-turn crowd this ends at exactly the starting capital. On an 80-turn
+crowd it can trade the second half.
 Prices climb quickly when a listing sells out, and the crowd listing is mostly
 a single price rather than a deep discount tranche.
 

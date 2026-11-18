@@ -195,15 +195,11 @@ class ClearingAgent(BaseAgent):
         # same shape as the teams above Patient on the 40-turn board. Freeze
         # new buys only after a deep drawdown. The value cap, not a low bid
         # ceiling, is what refuses an unprofitable auction.
-        if team_count >= 12 and state.capital < start * 0.90:
-            self._mode = "liquidate"
-            self._floor, self._init, self._ceiling = 0.02, 0.02, 0.08
-        elif team_count >= 12 and state.capital < start * 1.04:
-            self._mode = "thin"
-            self._floor, self._init, self._ceiling = 0.12, 0.35, 0.95
-        elif team_count >= 12:
-            self._mode = "scale"
-            self._floor, self._init, self._ceiling = 0.20, 0.40, 0.85
+        if team_count >= 12 and state.turn <= 40:
+            return Decision()
+        if team_count >= 12:
+            self._mode = "compound"
+            self._floor, self._init, self._ceiling = 0.12, 0.30, 0.85
         else:
             self._floor, self._init, self._ceiling = 0.50, 0.55, 1.20
         self._identify(state)
@@ -245,6 +241,8 @@ class ClearingAgent(BaseAgent):
             if good not in self._mid_price:
                 if single_product_market:
                     self._mid_price[good] = max(cost * 1.9, cost + 8.0)
+                elif self._mode == "compound":
+                    self._mid_price[good] = max(cost * 3.2, cost + 30.0)
                 elif team_count >= 12:
                     # A 3x poster does not clear when many teams are listing.
                     self._mid_price[good] = max(cost * 2.05, cost + 6.0)
@@ -261,6 +259,8 @@ class ClearingAgent(BaseAgent):
             base_target = 1
         elif self._mode == "softbook":
             base_target = max(4, min(12, round(market_scale / 1.5) + 5))
+        elif self._mode == "compound":
+            base_target = 8
         elif self._mode == "scale":
             base_target = max(3, min(10, round(market_scale / 1.8)))
         else:
@@ -281,8 +281,20 @@ class ClearingAgent(BaseAgent):
                     desired_stock = 1
             elif self._mode == "softbook":
                 desired_stock = max(3, min(6, max(sales_target, 4)))
+            elif self._mode == "compound":
+                if self._sell_through.get(good, 0.0) >= 0.8 and state.capital >= start * 1.01:
+                    desired_stock = max(4, min(14, sales_target + 3))
+                else:
+                    desired_stock = 1
             else:
                 desired_stock = max(2, min(base_target + 3, sales_target))
+            if (
+                desired_stock > 0
+                and (self._start or 0) >= 25_000
+                and self._sell_through.get(good, 0.0) >= 0.75
+            ):
+                # Proven seller and a long-match bankroll: compound that good.
+                desired_stock = min(20, max(desired_stock, int(round(desired_stock * self._start / 12_000))))
             production_target[name] = max(0, desired_stock - state.inventory.get(good, 0))
 
         def recipe_score(item) -> float:
@@ -293,7 +305,7 @@ class ClearingAgent(BaseAgent):
             return contribution * demand / (cost * max(1, sum(recipe.inputs.values())))
 
         ranked_recipes = sorted(goods_config.recipes.items(), key=recipe_score, reverse=True)
-        if self._mode == "softbook":
+        if self._mode in ("softbook", "compound"):
             for name, recipe in ranked_recipes:
                 if recipe_score((name, recipe)) <= 0:
                     production_target[name] = 0
@@ -336,8 +348,10 @@ class ClearingAgent(BaseAgent):
             budget_share = 0.18
         elif self._mode == "softbook":
             budget_share = 0.72
+        elif self._mode == "compound":
+            budget_share = 0.75
         elif self._mode == "scale":
-            budget_share = 0.42
+            budget_share = 0.55 if (self._start or 0) >= 25_000 else 0.42
         else:
             budget_share = 0.66 if state.capital >= 0.70 * peer_average else 0.40
         budget = max(0.0, state.capital * budget_share)
@@ -411,7 +425,7 @@ class ClearingAgent(BaseAgent):
             else:
                 self._mid_price[good] = mid
             mid = list_price
-            if team_count >= 12 and self._mode != "softbook":
+            if team_count >= 12 and self._mode not in ("softbook", "compound"):
                 # Most units stay on the learned price. A deep discount tranche
                 # is what the crowd buys, and it pulls revenue down to cost.
                 low_quantity = 1 if expected >= 3 else 0
