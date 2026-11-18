@@ -39,6 +39,7 @@ class ClearingAgent(BaseAgent):
         self._start: float | None = None
         self._floor = 0.50
         self._init = 0.55
+        self._ceiling = 1.20
 
     @staticmethod
     def _recipe_cost(recipe, material_prices: dict[str, float]) -> float:
@@ -104,8 +105,7 @@ class ClearingAgent(BaseAgent):
                 markup += 0.04
             elif fill > 0.97:
                 markup -= 0.015 if self._floor < 0.2 else 0.008
-            ceiling = 0.28 if self._floor < 0.1 else 1.20
-            self._bid_markup[material] = min(ceiling, max(self._floor, markup))
+            self._bid_markup[material] = min(self._ceiling, max(self._floor, markup))
             if won.get(material, 0) > 0:
                 observed = paid_value[material] / won[material]
                 old = self._unit_cost.get(material, observed)
@@ -125,28 +125,30 @@ class ClearingAgent(BaseAgent):
         for good in goods.finished_goods:
             units = sold.get(good, 0)
             previous = self._sales_ema.get(good, 1.8)
-            listed = self._last_listed.get(good, 0)
-            # Prefer realized availability when the plan and the fill disagree.
+            # Planned listings are not sales. Only stock that actually reached
+            # the shop (leftover inventory plus units sold) is evidence.
             available = int(state.inventory.get(good, 0)) + units
-            observed = float(units)
-            if listed > 0 and units >= listed:
-                observed = units * 1.2
-            self._sales_ema[good] = 0.55 * previous + 0.45 * max(observed, units)
-            if available <= 0 and listed <= 0:
+            if available <= 0:
+                self._sales_ema[good] = previous
                 continue
-            ratio = min(1.0, units / max(1, listed or available))
+            observed = float(units) * (1.2 if units >= available else 1.0)
+            self._sales_ema[good] = 0.55 * previous + 0.45 * observed
+            ratio = min(1.0, units / available)
             self._sell_through[good] = ratio
             price = self._mid_price.get(good)
             if price is None:
                 continue
-            if ratio >= 0.82:
-                price *= 1.09
+            crowded = len(state.public_inventories) >= 12
+            if crowded and ratio >= 0.98:
+                price *= 1.20
+            elif ratio >= 0.82:
+                price *= 1.10 if crowded else 1.09
             elif ratio <= 0.12:
-                price *= 0.84
+                price *= 0.86 if crowded else 0.84
             elif ratio <= 0.35:
-                price *= 0.92
+                price *= 0.93 if crowded else 0.92
             elif ratio >= 0.62:
-                price *= 1.03
+                price *= 1.04 if crowded else 1.03
             if units > 0:
                 average_sale = revenue[good] / units
                 price = 0.80 * price + 0.20 * max(price, average_sale)
@@ -156,22 +158,29 @@ class ClearingAgent(BaseAgent):
         if self._start is None:
             self._start = float(state.capital)
         team_count = max(1, len(state.public_inventories))
-        # Observable roster size. The portal game has every submission in one
+        # Observable roster size. The portal puts every submission in one
         # market; a local bake-off usually has a handful of teams.
-        # A large roster spends the opening turns in a pay-your-bid war.
-        # Sitting out those turns preserves cash on a 40-turn match. After
-        # that, survivors have less capital and a normal book is profitable
-        # again, which is what the long match rewards.
-        self._wait = team_count >= 12 and state.turn < 41
-        if self._wait:
-            self._floor = 0.02
-            self._init = 0.02
+        # In a crowd, buy one or two units only while the sale still covers
+        # the bid, and stop entirely if cash slips under the starting bankroll.
+        # Scale only after a realized profit. Small fields keep the 1.50x floor
+        # that beats PriceWar and the previous agent.
+        start = self._start or state.capital
+        self._mode = "small"
+        # A crowd can dip while a book is unsold and still finish ahead, the
+        # same shape as the teams above Patient on the 40-turn board. Freeze
+        # new buys only after a deep drawdown. The value cap, not a low bid
+        # ceiling, is what refuses an unprofitable auction.
+        if team_count >= 12 and state.capital < start * 0.90:
+            self._mode = "liquidate"
+            self._floor, self._init, self._ceiling = 0.02, 0.02, 0.08
+        elif team_count >= 12 and state.capital < start * 1.04:
+            self._mode = "thin"
+            self._floor, self._init, self._ceiling = 0.12, 0.35, 0.95
         elif team_count >= 12:
-            self._floor = 0.36
-            self._init = 0.48
+            self._mode = "scale"
+            self._floor, self._init, self._ceiling = 0.20, 0.40, 0.85
         else:
-            self._floor = 0.50
-            self._init = 0.55
+            self._floor, self._init, self._ceiling = 0.50, 0.55, 1.20
         self._identify(state)
         self._learn_from_last_turn(state, goods_config)
 
@@ -196,6 +205,9 @@ class ClearingAgent(BaseAgent):
             if good not in self._mid_price:
                 if single_product_market:
                     self._mid_price[good] = max(cost * 1.9, cost + 8.0)
+                elif team_count >= 12:
+                    # A 3x poster does not clear when many teams are listing.
+                    self._mid_price[good] = max(cost * 2.05, cost + 6.0)
                 else:
                     self._mid_price[good] = max(cost * 3.35, cost + 36.0)
 
@@ -203,10 +215,12 @@ class ClearingAgent(BaseAgent):
         market_scale = (
             sum(offered_per_team) / len(offered_per_team) if offered_per_team else 4.0
         )
-        if self._wait:
+        if self._mode == "liquidate":
             base_target = 0
-        elif team_count >= 12:
-            base_target = max(3, min(10, round(market_scale / 2.2)))
+        elif self._mode == "thin":
+            base_target = 1
+        elif self._mode == "scale":
+            base_target = max(2, min(6, round(market_scale / 2.5)))
         else:
             base_target = max(3, min(12, round(market_scale / 1.55)))
 
@@ -216,8 +230,10 @@ class ClearingAgent(BaseAgent):
             sales_target = ceil(self._sales_ema.get(good, 1.8) * 1.55) + 1
             if self._sell_through.get(good, 0.55) >= 0.80:
                 sales_target += 2
-            if self._wait:
+            if self._mode == "liquidate":
                 desired_stock = 0
+            elif self._mode == "thin":
+                desired_stock = 1
             else:
                 desired_stock = max(2, min(base_target + 3, sales_target))
             production_target[name] = max(0, desired_stock - state.inventory.get(good, 0))
@@ -230,6 +246,20 @@ class ClearingAgent(BaseAgent):
             return contribution * demand / (cost * max(1, sum(recipe.inputs.values())))
 
         ranked_recipes = sorted(goods_config.recipes.items(), key=recipe_score, reverse=True)
+        if self._mode in ("thin", "scale") and ranked_recipes:
+            # One finished good at a time. Splitting a partial fill across
+            # recipes strands inputs that can no longer be assembled.
+            width = 1 if self._mode == "thin" else 2
+            allowed = {name for name, _recipe in ranked_recipes[:width]}
+            for name, _recipe in ranked_recipes:
+                if name not in allowed or recipe_score((name, _recipe)) <= 0:
+                    production_target[name] = 0
+                elif self._mode == "thin":
+                    sold_well = self._sell_through.get(_recipe.output_good, 0.0) >= 0.55
+                    production_target[name] = min(
+                        production_target[name],
+                        4 if sold_well and state.capital >= (self._start or state.capital) else 2,
+                    )
 
         wanted = {material: 0 for material in goods_config.raw_materials}
         for name, recipe in ranked_recipes:
@@ -249,10 +279,12 @@ class ClearingAgent(BaseAgent):
         peer_average = (
             sum(solvent_capitals) / len(solvent_capitals) if solvent_capitals else state.capital
         )
-        if self._wait:
+        if self._mode == "liquidate":
             budget_share = 0.0
-        elif team_count >= 12:
-            budget_share = 0.60 if state.capital >= (self._start or state.capital) * 0.98 else 0.28
+        elif self._mode == "thin":
+            budget_share = 0.18
+        elif self._mode == "scale":
+            budget_share = 0.42
         else:
             budget_share = 0.66 if state.capital >= 0.70 * peer_average else 0.40
         budget = max(0.0, state.capital * budget_share)
@@ -271,7 +303,8 @@ class ClearingAgent(BaseAgent):
                 if units <= 0:
                     continue
                 other_cost = recipe_costs[name] - material_prices[material] * units
-                recoverable = self._mid_price[recipe.output_good] * 0.90 - other_cost
+                keep = 0.78 if self._mode in ("thin", "liquidate") else 0.90
+                recoverable = self._mid_price[recipe.output_good] * keep - other_cost
                 value_caps.append(recoverable / units)
             cap = max(value_caps, default=0.0)
             price = material_prices[material]
@@ -310,12 +343,30 @@ class ClearingAgent(BaseAgent):
                     listings.append(Listing(good, 1_000_000, float(mid)))
                 continue
             cost = max(0.01, recipe_costs[recipe_name])
-            mid = max(cost * 1.18, self._mid_price[good])
-            self._mid_price[good] = mid
-            low_quantity = max(1, ceil(expected * 0.28))
-            premium_quantity = int(expected * 0.20)
+            floor_mult = 1.12 if team_count >= 12 else 1.18
+            mid = max(cost * floor_mult, self._mid_price[good])
+            list_price = mid
+            if self._mode == "liquidate" or (
+                team_count >= 12 and self._sell_through.get(good, 1.0) < 0.20
+            ):
+                # Discount the offer without permanently collapsing the belief.
+                # A full loss of inventory is what drops a team under Patient.
+                list_price = max(cost * 1.06, mid * 0.90)
+                self._mid_price[good] = max(cost * 1.08, mid * 0.97)
+            else:
+                self._mid_price[good] = mid
+            mid = list_price
+            if team_count >= 12:
+                # Most units stay on the learned price. A deep discount tranche
+                # is what the crowd buys, and it pulls revenue down to cost.
+                low_quantity = 1 if expected >= 3 else 0
+                premium_quantity = 0
+                low_price = max(cost * 1.20, mid * 0.90)
+            else:
+                low_quantity = max(1, ceil(expected * 0.28))
+                premium_quantity = int(expected * 0.20)
+                low_price = max(cost * 1.08, min(mid * 0.60, cost * 1.36))
             mid_quantity = max(0, expected - low_quantity - premium_quantity)
-            low_price = max(cost * 1.08, min(mid * 0.60, cost * 1.36))
             listings.append(Listing(good, low_quantity, float(low_price)))
             if mid_quantity > 0:
                 listings.append(Listing(good, mid_quantity, float(mid)))

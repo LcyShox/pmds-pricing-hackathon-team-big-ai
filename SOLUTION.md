@@ -34,9 +34,25 @@ Pay-your-bid, highest bid first. PriceWar bids 1.45x reserve and the previous
 agent never shades below 1.46x, so in a small field this agent keeps a 1.50x
 floor, buys a slightly larger book, and lists a low / mid / premium tranche.
 
-When 12 or more teams share the market, those opening bids are a negative-sum
-war. The agent places no bids until turn 41, which keeps it tied with
-PatientAgent on a 40-turn match, then buys at about 1.48x reserve. In a
-37-team stress market (24 aggressive bidders plus 8 patients, 240 turns,
-start 40000, seeds 42, 7, 99, 123) it finished first each time, about
-52k–53k versus PatientAgent at 40000 and the previous agent at about 39500.
+When 12 or more teams share the market, the agent buys one finished good at a
+time and only while the learned sale price still covers the bid. It keeps
+trading through a mild drawdown (the shape of the teams that beat Patient on
+the 40-turn board) and stops new buys only below 90% of starting capital.
+Prices climb quickly when a listing sells out, and the crowd listing is mostly
+a single price rather than a deep discount tranche.
+
+Crowded stress, 40 turns, final capital. Patient stays at 12000. The previous
+agent finishes near 11520.
+
+| Field | Seed | ClearingAgent | Previous agent |
+| --- | --- | ---: | ---: |
+| 37 teams, 24 aggressive bidders | 42 | 13747 | 11522 |
+| 37 teams, 24 aggressive bidders | 7 | 17042 | 11521 |
+| 37 teams, 24 aggressive bidders | 99 | 12670 | 11528 |
+| 25 teams, mostly patients and moderate bidders | 42 | 14401 | 28807 |
+| 25 teams, mostly patients and moderate bidders | 7 | 14515 | 31771 |
+| 28 teams, moderate plus dumpers | 42 | 15218 | 17658 |
+
+On the softer fields the previous agent still makes more, because it holds a
+large book. ClearingAgent's edge is finishing above Patient on the harsh field
+where that large book loses money.
