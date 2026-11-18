@@ -46,12 +46,19 @@ agent finishes near 11520.
 
 | Field | Seed | ClearingAgent | Previous agent |
 | --- | --- | ---: | ---: |
-| 37 teams, 24 aggressive bidders | 42 | 13747 | 11522 |
-| 37 teams, 24 aggressive bidders | 7 | 17042 | 11521 |
-| 37 teams, 24 aggressive bidders | 99 | 12670 | 11528 |
-| 25 teams, mostly patients and moderate bidders | 42 | 17954 | 31686 |
-| 25 teams, mostly patients and moderate bidders | 7 | 16432 | 27371 |
-| 25 teams, mostly patients and moderate bidders | 99 | 17123 | 32060 |
+| 37 teams, 24 aggressive bidders | 42 | 13558 | 11522 |
+| 37 teams, 24 aggressive bidders | 7 | 12935 | 11521 |
+| 37 teams, 24 aggressive bidders | 99 | 14409 | 11528 |
+| 25 teams, mostly patients and moderate bidders | 42 | 21777 | 22569 |
+| 25 teams, mostly patients and moderate bidders | 7 | 20333 | 21983 |
+| 25 teams, mostly patients and moderate bidders | 99 | 22261 | 21795 |
+
+When fills stay high without the median bid rising above 1.72× reserve, and most
+peers are still near their starting capital, the agent widens to a full
+positive-margin book and, if the clearing markup is already near 1.40×, pins
+the floor at 1.50×. A median bid that already touched 1.72× is remembered as a
+war, and the large book stays shut. That leaves the 37-team and mixed-war
+results unchanged and raises the moderate fields.
 
 Same 37-team field, 240 turns, start 40000, seed 42: ClearingAgent 125137,
 previous agent 39520, PatientAgent 40000, DummyAgent 46227.

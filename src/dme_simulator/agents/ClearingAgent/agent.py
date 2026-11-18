@@ -40,6 +40,10 @@ class ClearingAgent(BaseAgent):
         self._floor = 0.50
         self._init = 0.55
         self._ceiling = 1.20
+        self._fill_ema = 0.0
+        self._fill_obs = 0
+        self._soft_ema = 0.0
+        self._saw_war = False
 
     @staticmethod
     def _recipe_cost(recipe, material_prices: dict[str, float]) -> float:
@@ -85,6 +89,7 @@ class ClearingAgent(BaseAgent):
                 + transaction.quantity * transaction.price
             )
 
+        fills: list[float] = []
         for material in goods.raw_materials:
             requested = self._last_bid_quantity.get(material, 0)
             if requested <= 0:
@@ -92,6 +97,7 @@ class ClearingAgent(BaseAgent):
             lot_qty = self._last_lot_quantity.get(material, requested)
             target = min(requested, lot_qty) if lot_qty else requested
             fill = won.get(material, 0) / target if target else 1.0
+            fills.append(fill)
             markup = self._bid_markup.get(material, self._init)
             # In a small field, never fall through the band that beats
             # PriceWar (1.45x) and the previous agent (1.46x). In a crowded
@@ -110,6 +116,9 @@ class ClearingAgent(BaseAgent):
                 observed = paid_value[material] / won[material]
                 old = self._unit_cost.get(material, observed)
                 self._unit_cost[material] = 0.65 * old + 0.35 * observed
+        if fills:
+            self._fill_obs += 1
+            self._fill_ema = 0.6 * self._fill_ema + 0.4 * (sum(fills) / len(fills))
 
         new_sales = self._own(state.sales_transactions[self._sales_seen :], "seller")
         self._sales_seen = len(state.sales_transactions)
@@ -154,6 +163,22 @@ class ClearingAgent(BaseAgent):
                 price = 0.80 * price + 0.20 * max(price, average_sale)
             self._mid_price[good] = price
 
+    def _note_softness(self, state: Observation) -> None:
+        """Soft field: we are filled without a bidding war, and peers are solvent."""
+        markups = sorted(self._bid_markup.values()) or [self._init]
+        median_markup = markups[len(markups) // 2]
+        # A median bid above 1.72x means the auction is a war. Remember that
+        # so a later quiet stretch cannot reopen a large book.
+        if median_markup >= 0.72:
+            self._saw_war = True
+        if self._saw_war or len(state.public_inventories) < 12 or self._fill_obs < 3:
+            return
+        start = self._start or state.capital
+        n = max(1, len(state.public_capital))
+        calm = sum(1 for cash in state.public_capital.values() if cash >= start * 0.98) / n
+        raw = self._fill_ema >= 0.62 and median_markup <= 0.62 and calm >= 0.42
+        self._soft_ema = 0.5 * self._soft_ema + 0.5 * (1.0 if raw else 0.0)
+
     def decide(self, state: Observation, goods_config: GoodsConfig) -> Decision:
         if self._start is None:
             self._start = float(state.capital)
@@ -183,6 +208,21 @@ class ClearingAgent(BaseAgent):
             self._floor, self._init, self._ceiling = 0.50, 0.55, 1.20
         self._identify(state)
         self._learn_from_last_turn(state, goods_config)
+        self._note_softness(state)
+        if self._mode in ("thin", "scale") and self._soft_ema >= 0.5:
+            # Units are cheap and the field is not breaking. Buy the whole
+            # positive-margin book. Raise the bid floor to 1.50x only when
+            # the market is already clearing near that level; forcing 1.50x
+            # on a softer tape just overpays.
+            self._mode = "softbook"
+            markups = sorted(self._bid_markup.values())
+            median_markup = markups[len(markups) // 2] if markups else self._init
+            if median_markup >= 0.40:
+                self._floor = max(self._floor, 0.50)
+                for material in list(self._bid_markup):
+                    self._bid_markup[material] = min(
+                        self._ceiling, max(self._bid_markup[material], 0.50)
+                    )
 
         lots = {lot.good: lot for lot in state.auction_lots}
         material_prices: dict[str, float] = {}
@@ -219,6 +259,8 @@ class ClearingAgent(BaseAgent):
             base_target = 0
         elif self._mode == "thin":
             base_target = 1
+        elif self._mode == "softbook":
+            base_target = max(4, min(12, round(market_scale / 1.5) + 5))
         elif self._mode == "scale":
             base_target = max(3, min(10, round(market_scale / 1.8)))
         else:
@@ -237,6 +279,8 @@ class ClearingAgent(BaseAgent):
                     desired_stock = max(2, min(8, sales_target))
                 else:
                     desired_stock = 1
+            elif self._mode == "softbook":
+                desired_stock = max(3, min(6, max(sales_target, 4)))
             else:
                 desired_stock = max(2, min(base_target + 3, sales_target))
             production_target[name] = max(0, desired_stock - state.inventory.get(good, 0))
@@ -249,7 +293,11 @@ class ClearingAgent(BaseAgent):
             return contribution * demand / (cost * max(1, sum(recipe.inputs.values())))
 
         ranked_recipes = sorted(goods_config.recipes.items(), key=recipe_score, reverse=True)
-        if self._mode in ("thin", "scale") and ranked_recipes:
+        if self._mode == "softbook":
+            for name, recipe in ranked_recipes:
+                if recipe_score((name, recipe)) <= 0:
+                    production_target[name] = 0
+        elif self._mode in ("thin", "scale") and ranked_recipes:
             # One finished good at a time. Splitting a partial fill across
             # recipes strands inputs that can no longer be assembled.
             width = 1 if self._mode == "thin" else 2
@@ -286,6 +334,8 @@ class ClearingAgent(BaseAgent):
             budget_share = 0.0
         elif self._mode == "thin":
             budget_share = 0.18
+        elif self._mode == "softbook":
+            budget_share = 0.72
         elif self._mode == "scale":
             budget_share = 0.42
         else:
@@ -306,7 +356,9 @@ class ClearingAgent(BaseAgent):
                 if units <= 0:
                     continue
                 other_cost = recipe_costs[name] - material_prices[material] * units
-                keep = 0.78 if self._mode in ("thin", "liquidate") else 0.90
+                keep = 0.90 if self._mode == "softbook" else (
+                    0.78 if self._mode in ("thin", "liquidate") else 0.90
+                )
                 recoverable = self._mid_price[recipe.output_good] * keep - other_cost
                 value_caps.append(recoverable / units)
             cap = max(value_caps, default=0.0)
@@ -359,7 +411,7 @@ class ClearingAgent(BaseAgent):
             else:
                 self._mid_price[good] = mid
             mid = list_price
-            if team_count >= 12:
+            if team_count >= 12 and self._mode != "softbook":
                 # Most units stay on the learned price. A deep discount tranche
                 # is what the crowd buys, and it pulls revenue down to cost.
                 low_quantity = 1 if expected >= 3 else 0
