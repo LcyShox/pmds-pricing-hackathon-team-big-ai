@@ -195,11 +195,13 @@ class ClearingAgent(BaseAgent):
         # same shape as the teams above Patient on the 40-turn board. Freeze
         # new buys only after a deep drawdown. The value cap, not a low bid
         # ceiling, is what refuses an unprofitable auction.
-        if team_count >= 12 and state.turn <= 40:
+        # No match length is exposed. The short official game starts at 12k
+        # and is a war; the 80-turn game starts at 40k and pays from turn 1.
+        if team_count >= 12 and start <= 20_000:
             return Decision()
         if team_count >= 12:
             self._mode = "compound"
-            self._floor, self._init, self._ceiling = 0.12, 0.30, 0.85
+            self._floor, self._init, self._ceiling = 0.35, 0.55, 1.05
         else:
             self._floor, self._init, self._ceiling = 0.50, 0.55, 1.20
         self._identify(state)
@@ -282,10 +284,10 @@ class ClearingAgent(BaseAgent):
             elif self._mode == "softbook":
                 desired_stock = max(3, min(6, max(sales_target, 4)))
             elif self._mode == "compound":
-                if self._sell_through.get(good, 0.0) >= 0.8 and state.capital >= start * 1.01:
-                    desired_stock = max(4, min(14, sales_target + 3))
+                if self._sell_through.get(good, 0.0) >= 0.55:
+                    desired_stock = min(24, max(8, sales_target + 6))
                 else:
-                    desired_stock = 1
+                    desired_stock = 5
             else:
                 desired_stock = max(2, min(base_target + 3, sales_target))
             if (
@@ -349,7 +351,7 @@ class ClearingAgent(BaseAgent):
         elif self._mode == "softbook":
             budget_share = 0.72
         elif self._mode == "compound":
-            budget_share = 0.75
+            budget_share = 0.35 if state.capital < start * 0.90 else 0.80
         elif self._mode == "scale":
             budget_share = 0.55 if (self._start or 0) >= 25_000 else 0.42
         else:
